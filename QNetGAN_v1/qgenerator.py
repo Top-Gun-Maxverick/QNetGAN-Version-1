@@ -1,27 +1,21 @@
+import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from math import *
 import pennylane as qml
 
-#SOURCE: https://github.com/rdisipio/qlstm/blob/main/qlstm_pennylane.py
-class QLSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, n_qubits=4, n_qlayers=1, batch_first=True, return_sequences=False, return_state=False, backend="default.qubit"):
-        super(QLSTM, self).__init__()
-        self.n_inputs = input_size
+#SOURCE: https://github.com/rdisipio/qlstm/blob/main/qlstm_pennylane.py and me
+class QLSTMCell(nn.Module):
+    def __init__(self, input_size, hidden_size, n_qubits, n_qlayers=1, backend="default.qubit"):
+        super(QLSTMCell, self).__init__()
+        self.input_size = input_size
         self.hidden_size = hidden_size
-        self.concat_size = self.n_inputs + self.hidden_size
+        
         self.n_qubits = n_qubits
         self.n_qlayers = n_qlayers
-        self.backend = backend 
-        print("Other options for self.backend:", "qiskit.basicaer", "qiskit.ibm(q)")
-
-        self.batch_first = batch_first
-        self.return_sequences = return_sequences
-        self.return_state = return_state
-
-        #self.dev = qml.device("default.qubit", wires=self.n_qubits)
-        #self.dev = qml.device('qiskit.basicaer', wires=self.n_qubits)
-        #self.dev = qml.device('qiskit.ibm', wires=self.n_qubits)
-        # use 'qiskit.ibmq' instead to run on hardware
+        self.backend = backend  # "default.qubit", "qiskit.basicaer", "qiskit.ibm"
 
         self.wires_forget = [f"wire_forget_{i}" for i in range(self.n_qubits)]
         self.wires_input = [f"wire_input_{i}" for i in range(self.n_qubits)]
@@ -41,7 +35,8 @@ class QLSTM(nn.Module):
 
         def _circuit_input(inputs, weights):
             qml.templates.AngleEmbedding(inputs, wires=self.wires_input)
-            qml.templates.BasicEntanglerLayers(weights, wires=self.wires_input)
+            qml.templates.BasicEntanglerLayers(weights, wires=self.wires_input, rotation=qml.RY)
+            #qml.templates.BasicEntanglerLayers(weights, wires=self.wires_input, rotation=qml.RZ)
             return [qml.expval(qml.PauliZ(wires=w)) for w in self.wires_input]
         self.qlayer_input = qml.QNode(_circuit_input, self.dev_input, interface="torch")
 
@@ -58,9 +53,12 @@ class QLSTM(nn.Module):
         self.qlayer_output = qml.QNode(_circuit_output, self.dev_output, interface="torch")
 
         weight_shapes = {"weights": (n_qlayers, n_qubits)}
-        print(f"weight_shapes = (n_qlayers, n_qubits) = ({n_qlayers}, {n_qubits})")
+        #print(f"weight_shapes = (n_qlayers, n_qubits) = ({n_qlayers}, {n_qubits})")
 
-        self.clayer_in = torch.nn.Linear(self.concat_size, n_qubits)
+        self.cell = torch.nn.Linear(self.input_size+self.hidden_size, n_qubits, bias=True)
+        torch.nn.init.xavier_uniform_(self.cell.weight)
+        torch.nn.init.zeros_(self.cell.bias)
+        
         self.VQC = {
             'forget': qml.qnn.TorchLayer(self.qlayer_forget, weight_shapes),
             'input': qml.qnn.TorchLayer(self.qlayer_input, weight_shapes),
@@ -68,55 +66,24 @@ class QLSTM(nn.Module):
             'output': qml.qnn.TorchLayer(self.qlayer_output, weight_shapes)
         }
         self.clayer_out = torch.nn.Linear(self.n_qubits, self.hidden_size)
-        #self.clayer_out = [torch.nn.Linear(n_qubits, self.hidden_size) for _ in range(4)]
 
-    def forward(self, x, init_states=None):
-        '''
-        x.shape is (batch_size, seq_length, feature_size)
-        recurrent_activation -> sigmoid
-        activation -> tanh
-        '''
-        if self.batch_first is True:
-            batch_size, seq_length, features_size = x.size()
-        else:
-            seq_length, batch_size, features_size = x.size()
+    def forward(self, x, hidden): #, init_states=None):
+        hx, cx = hidden
+        gates = torch.cat((x, hx), dim=1)
+        gates = self.cell(gates)
 
-        hidden_seq = []
-        if init_states is None:
-            h_t = torch.zeros(batch_size, self.hidden_size)  # hidden state (output)
-            c_t = torch.zeros(batch_size, self.hidden_size)  # cell state
-        else:
-            # for now we ignore the fact that in PyTorch you can stack multiple RNNs
-            # so we take only the first elements of the init_states tuple init_states[0][0], init_states[1][0]
-            h_t, c_t = init_states
-            h_t = h_t[0]
-            c_t = c_t[0]
+        for layer in range(self.n_qlayers):
+            ingate = torch.sigmoid(self.clayer_out(self.VQC['forget'](gates)))  # forget block
+            forgetgate = torch.sigmoid(self.clayer_out(self.VQC['input'](gates)))  # input block
+            cellgate = torch.tanh(self.clayer_out(self.VQC['update'](gates)))  # update block
+            outgate = torch.sigmoid(self.clayer_out(self.VQC['output'](gates))) # output block
 
-        for t in range(seq_length):
-            # get features from the t-th element in seq, for all entries in the batch
-            x_t = x[:, t, :]
-            
-            # Concatenate input and hidden state
-            v_t = torch.cat((h_t, x_t), dim=1)
+            cy = torch.mul(cx, forgetgate) + torch.mul(ingate, cellgate)
+            hy = torch.mul(outgate, torch.tanh(cy))
 
-            # match qubit dimension
-            y_t = self.clayer_in(v_t)
-
-            f_t = torch.sigmoid(self.clayer_out(self.VQC['forget'](y_t)))  # forget block
-            i_t = torch.sigmoid(self.clayer_out(self.VQC['input'](y_t)))  # input block
-            g_t = torch.tanh(self.clayer_out(self.VQC['update'](y_t)))  # update block
-            o_t = torch.sigmoid(self.clayer_out(self.VQC['output'](y_t))) # output block
-
-            c_t = (f_t * c_t) + (i_t * g_t)
-            h_t = o_t * torch.tanh(c_t)
-
-            hidden_seq.append(h_t.unsqueeze(0))
-        hidden_seq = torch.cat(hidden_seq, dim=0)
-        hidden_seq = hidden_seq.transpose(0, 1).contiguous()
-        return hidden_seq, (h_t, c_t)
+        return (hy, cy)
             
         
-#THIS CODE IS SUPER SCUFFED IDK IF IT WORKS
 #MOSTLY COPIED FROM NETGAN GENERATOR
 class QGenerator(nn.Module):
     def __init__(self, H_inputs, H, z_dim, N, rw_len, temp):
@@ -124,7 +91,7 @@ class QGenerator(nn.Module):
             H_inputs: input dimension
             H:        hidden dimension
             z_dim:    latent dimension
-            N:        number of nodes/qubits (needed for the up and down projection)
+            N:        number of nodes (needed for the up and down projection)
             rw_len:   number of LSTM cells
             temp:     temperature for the gumbel softmax
         '''
@@ -138,7 +105,7 @@ class QGenerator(nn.Module):
         self.h_up = nn.Linear(H, H).type(torch.float64)
         torch.nn.init.xavier_uniform_(self.h_up.weight)
         torch.nn.init.zeros_(self.h_up.bias)
-        self.lstmcell = QLSTM(H_inputs, H, n_qubits = N).type(torch.float64)
+        self.lstmcell = QLSTMCell(input_size=H_inputs, hidden_size=H, n_qubits=N).type(torch.float64)
         self.W_up = nn.Linear(H, N).type(torch.float64)
         self.W_down = nn.Linear(N, H_inputs, bias=False).type(torch.float64)
         self.rw_len = rw_len
@@ -148,20 +115,22 @@ class QGenerator(nn.Module):
         self.N = N
         self.H_inputs = H_inputs
         
-    def forward(self, latent, inputs, device='cuda', backend='default.qubit'):
+    def forward(self, latent, inputs, device='cuda'):
         intermediate = torch.tanh(self.intermediate(latent))
         hc = (torch.tanh(self.h_up(intermediate)), torch.tanh(self.c_up(intermediate)))
-        out = []  # gumbel_noise = uniform noise [0, 1]
+        out = []  
         for i in range(self.rw_len):
-            hidden_seq, hc = self.lstmcell(inputs, hc)
+            hh, cc = self.lstmcell(inputs, hc)
+            hc = (hh, cc)
             h_up = self.W_up(hh)                
             h_sample = self.gumbel_softmax_sample(h_up, self.temp, device)
             inputs = self.W_down(h_sample)      
             out.append(h_sample)
         return torch.stack(out, dim=1)
-    
+
     def sample_latent(self, num_samples, device):
         return torch.randn((num_samples, self.latent_dim)).type(torch.float64).to(device)
+
 
     def sample(self, num_samples, device):
         noise = self.sample_latent(num_samples, device)
@@ -179,7 +148,6 @@ class QGenerator(nn.Module):
         return -torch.log(-torch.log(U + eps) + eps)
 
     def gumbel_softmax_sample(self, logits,  temperature, device, hard=True):
-        """ Draw a sample from the Gumbel-Softmax distribution"""
         gumbel = self.sample_gumbel(logits).type(torch.float64).to(device)
         y = logits + gumbel
         y = torch.nn.functional.softmax(y / temperature, dim=1)

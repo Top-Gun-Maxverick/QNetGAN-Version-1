@@ -1,4 +1,5 @@
-from models import Generator, Discriminator
+import qgenerator as Q
+import cdiscriminator as D
 import utils
 
 import numpy as np
@@ -75,8 +76,8 @@ class Trainer():
         self.rw_len = rw_len
         self.batch_size = batch_size
         self.N = N
-        self.generator = Generator(H_inputs=H_inp, H=H_gen, N=N, rw_len=rw_len, z_dim=z_dim, temp=temp_start).to(self.device)
-        self.discriminator = Discriminator(H_inputs=H_inp, H=H_disc, N=N, rw_len=rw_len).to(self.device)
+        self.generator = Q.QGenerator(H_inputs=H_inp, H=H_gen, N=N, rw_len=rw_len, z_dim=z_dim, temp=temp_start).to(self.device)
+        self.discriminator = D.Discriminator(H_inputs=H_inp, H=H_disc, N=N, rw_len=rw_len).to(self.device)
         self.G_optimizer = optim.Adam(self.generator.parameters(), lr=lr, betas=betas)
         self.D_optimizer = optim.Adam(self.discriminator.parameters(), lr=lr, betas=betas)
         self.n_critic = n_critic
@@ -172,17 +173,17 @@ class Trainer():
         self.G_optimizer.step()
         return gen_cost.item()
 
-    def create_graph(self, num_samples, i, reset_weights=False):
+    def create_graph(self, num_samples, i, reset_weights=False, tmp=100):
         if reset_weights:
             self.generator.reset_weights()
         self.generator.eval()
 
         self.generator.temp = 0.5
         samples = []
-        num_iterations = int(num_samples/1000)+1
+        num_iterations = int(num_samples/tmp)+1
         for j in range(num_iterations):
             if(j%10 == 1): print(j)
-            samples.append(self.generator.sample_discrete(int(num_samples/1000), self.device))
+            samples.append(self.generator.sample_discrete(int(num_samples/tmp), self.device))
         samples = np.vstack(samples)
         print(f"samples:{samples}")
         if samples == []: raise Exception("Debugging in Progress! \"Samples\" is EMPTY!")
@@ -203,13 +204,13 @@ class Trainer():
         print('roc: {:.4f}   avp: {:.4f}   eo: {:.4f}'.format(self.roc_auc[-1], self.avp[-1], self.eo[-1]))
         self.generator.temp = np.maximum(self.temp_start * np.exp(-(1 - self.temp_decay) * i), self.min_temp)
 
-    def create_transition_matrix(self, num_samples):        # should be multiples of 1000
+    def create_transition_matrix(self, num_samples, tmp=100):        # should be multiples of 1000
         self.generator.eval()
         samples = []
-        num_iterations = int(num_samples/1000)+1
+        num_iterations = int(num_samples/tmp)+1
         for j in range(num_iterations):
             if(j%10 == 1): print(j)
-            samples.append(self.generator.sample_discrete(int(num_samples/1000), self.device))
+            samples.append(self.generator.sample_discrete(int(num_samples/tmp), self.device))
         samples = np.vstack(samples)
         gr = utils.score_matrix_from_random_walks(samples, self.N)
         gr = gr.tocsr()

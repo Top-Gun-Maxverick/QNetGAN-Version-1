@@ -7,6 +7,7 @@ from torch_geometric.transforms import NormalizeFeatures
 import matplotlib.pyplot as plt
 import scipy
 import scipy.io
+import numpy as np
 
 class DataProcessor(object):
     def __init__(self):
@@ -43,7 +44,7 @@ class DataProcessor(object):
         ihatethis = not_graph_sparse - mst
         ihatethis = ihatethis.asformat("array")
         none = np.array([[0. for j in range(n)] for i in range(n)])
-        return ihatethis != none
+        return ihatethis == none
 
 class DatasetLoader:
     def __init__(self, path: str):
@@ -70,6 +71,7 @@ class DatasetLoader:
         print(f'Has isolated nodes: {data.has_isolated_nodes()}')
         print(f'Has self-loops: {data.has_self_loops()}')
         print(f'Is undirected: {data.is_undirected()}')
+        return data
         
     def mol_info(self, data):
         '''
@@ -104,10 +106,10 @@ class DatasetLoader:
         draw: bool (default False) --> if True, displays the graph of the molecule
         '''
         if verbose:
-            self.get_info(idx)
+            self.mol_info(data)
             print()
         data = self.dataset[idx]
-        self.mol_info(data)
+        self.get_info(idx)
         if draw:
             print()
             self.draw_mol(data)
@@ -135,7 +137,7 @@ class QM9Data(object):
         except AssertionError: raise IndexError("Out of bounds!")
         sample = self.DL.__getitem__(idx, verbose=verbose, draw=draw)
         graph, matrix = self.DP.pyg_to_ssm(sample)
-        if DP.molecule_is_own_MST(graph):
+        if self.DP.molecule_is_own_MST(graph):
             print(f"The molecule at index {idx} is its own MST.")
             not_decided = True
             while not_decided:
