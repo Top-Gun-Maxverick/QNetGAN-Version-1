@@ -1,13 +1,12 @@
-# QNETGAN version 9419
-### Yes this is the 9419th version of QNETGAN
-Don't ask why there are so many versions.
+# QNETGAN 
+Hybrid Quantum-Classical Graph Generative Adversarial Network for Synthesizing Chemicall Feasible Molecules
 
 ## Navigating this Repository
 Lucky you! There's only one folder. It's called `raw`. It contains the QM9 Dataset, downloaded from [here](https://pytorch-geometric.readthedocs.io/en/latest/modules/datasets.html#torch_geometric.datasets.QM9). There are also various files.
 1. `cdiscriminator.py`: contains code for the classical Discriminator
 2. `datahelper.py`: contains code for utilities that help with loading and processing the QM9 dataset
 3. `qgenerator.py`: contains code for the quantum Generator
-4. `trainer.py`: contains code for training the QNETGAN **I HAVEN'T REVIEWED THE CODE YET**
+4. `trainer.py`: contains code for training the QNETGAN 
 5. `utils.py`: contains various utilities for other stuff
 
 ## Making Changes to Files
