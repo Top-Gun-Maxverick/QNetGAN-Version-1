@@ -2,7 +2,10 @@
 Hybrid Quantum-Classical Graph Generative Adversarial Network for Synthesizing Chemicall Feasible Molecules
 
 ## Navigating this Repository
-Lucky you! There's only one folder. It's called `raw`. It contains the QM9 Dataset, downloaded from [here](https://pytorch-geometric.readthedocs.io/en/latest/modules/datasets.html#torch_geometric.datasets.QM9). There are also various files.
+Lucky you! There's only a few folders. They're pretty self-explanatory.    
+The `QNetGAN_v1` folder contains the OG QNetGAN model while `QM9NetGAN_Iterations` contain various training iterations running on the OG model.
+
+## Model Files
 1. `cdiscriminator.py`: contains code for the classical Discriminator
 2. `datahelper.py`: contains code for utilities that help with loading and processing the QM9 dataset
 3. `qgenerator.py`: contains code for the quantum Generator
@@ -22,9 +25,10 @@ Add it to `resources.md`!
 Visit [this](https://github.com/Top-Gun-Maxverick/summer2022qc/issues/new) to create a new issue!
 
 ## Acknowledgements
-We would like to thank ASDRP for allowing us to conduct this high-quality and groundbreaking research. We would also like to thank Max and Adelina for their diligent work in creating and/or finding all the code.
+We would like to thank ASDRP for allowing us to conduct this high-quality and groundbreaking research. We would also like to thank Max and Adelina for their diligent work in creating and/or finding all the code. And you group members for visiting this page and helping out.
 
 ## Notes
 **Please do not clone this repository** *unless you are one of the collaborators*
 If you clone this repository, we will report you to the United States Federal Investigation Bureau, among many other severe consequences. Don't even think about it. Unless you want to end up in court or jail.     
-**Make sure to follow the licensing rules**. If you don't, we will sue you for license violations. 
+**Make sure to follow the licensing rules**. If you don't, we will sue you for license violations.
+**HIPPITY HOPPITY FUCK OFF OUR PROPERTY**
